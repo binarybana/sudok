@@ -57,20 +57,31 @@ impl Puzzle {
         true
     }
 
-    fn get_most_constrained(&mut self) -> &mut Cell {
+    fn get_forced_choice(&mut self) -> Option<(usize, u8)> {
+        for (i, cell) in self.0.iter().enumerate() {
+            if let &Cell::Unknown(ref val) = cell {
+                if val.possibles.len() == 1 {
+                    return Some((i, val.possibles[0]));
+                }
+            }
+        }
+        None
+    }
+
+    fn get_most_constrained(&mut self) -> (usize, &mut Cell) {
         assert!(!self.is_done());
         // TODO: rewrite using functional operators
         let mut min_options = 11;
         let mut min_ind = 0;
         for (i, cell) in self.0.iter().enumerate() {
-            if let &Cell::Unknown(val) = cell {
+            if let &Cell::Unknown(ref val) = cell {
                 if val.possibles.len() < min_options {
                     min_options = val.possibles.len();
                     min_ind = i;
                 }
             }
         }
-        &mut self.0[min_ind]
+        (min_ind, &mut self.0[min_ind])
     }
 
     fn with_cell_choice(&self, pivot_cell_index: usize, val: u8) -> Puzzle {
@@ -149,10 +160,14 @@ fn update_constraints(puzzle: &mut Puzzle) {
     }
 }
 
+fn make_choice(puzzle: &mut Puzzle, choice: (usize, u8)) {
+    puzzle.0[choice.0] = Cell::Known(choice.1);
+}
+
 fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
     let mut result = puzzle.clone();
     update_constraints(&mut result);
-    fn inner_solve(puzzle: Puzzle) -> Option<Puzzle> {
+    fn inner_solve(mut puzzle: Puzzle) -> Option<Puzzle> {
         // Solve this puzzle as much as possible
         while let Some(choice) = puzzle.get_forced_choice() {
             make_choice(&mut puzzle, choice);
@@ -163,12 +178,16 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
         if puzzle.is_done() {
             return Some(puzzle);
         }
-        let pivot_cell_index = puzzle.get_most_constrained();
-        let possibles = puzzle.0[pivot_cell_index] FIXME
-        // FIXME: need to grab possibles out and index (for with_cell_choice)
-
-        for val in pivot_cell.possibles.iter().enumerate() {
-            let new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val);
+        // some borrowck shenanigans
+        let (pivot_cell_index, opts) = {
+            let (pivot_cell_index, pivot_cell) = puzzle.get_most_constrained();
+            match pivot_cell {
+                &mut Cell::Unknown(ref opts) => (pivot_cell_index, opts.possibles.clone()),
+                _ => unreachable!(),
+            }
+        };
+        for val in opts.iter() {
+            let new_puzzle = puzzle.with_cell_choice(pivot_cell_index, *val);
             if let Some(soln) = inner_solve(new_puzzle) {
                 return Some(soln);
             }
@@ -205,6 +224,13 @@ mod tests {
         // let s = "9.4..5...25.6..1..31......8.7...9...4..26......147....7.......2...3..8.6.4.....9.";
         let s = "9.4..5...25.6..1..31......8.7...9...4..26......147....7.......2...3..8.6.4.....9.";
         parse_puzzle(s)
+    }
+
+    #[test]
+    fn solving() {
+        let p = get_puzzle();
+        let s = solve_puzzle(p);
+        println!("{:?}", s);
     }
 
     #[test]
