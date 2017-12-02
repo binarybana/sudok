@@ -319,8 +319,8 @@ fn main() {
         let puzzle = parse_puzzle(&line.unwrap());
         let soln = solve_puzzle(puzzle.clone());
         assert!(soln.is_valid());
-        println!("{}\n{}", puzzle, soln);
-        println!("-------------------");
+        // println!("{}\n{}", puzzle, soln);
+        // println!("-------------------");
     }
     let new_now = Instant::now();
     let duration = new_now.duration_since(now);
