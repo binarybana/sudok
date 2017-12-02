@@ -1,6 +1,7 @@
 [package]
+authors = ["Jason Knight <Jason@JasonKnight.us>"]
 name = "sudok"
 version = "0.1.0"
-authors = ["Jason Knight <Jason@JasonKnight.us>"]
-
 [dependencies]
+env_logger = "*"
+log = "*"

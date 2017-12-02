@@ -1,5 +1,8 @@
 #![feature(vec_remove_item)]
 
+#[macro_use] extern crate log;
+extern crate env_logger;
+
 use std::io::{BufRead, BufReader};
 
 
@@ -71,16 +74,20 @@ impl Puzzle {
     fn get_most_constrained(&mut self) -> (usize, &mut Cell) {
         assert!(!self.is_done());
         // TODO: rewrite using functional operators
+        debug!("most constrained: \n{}", self);
+        debug!("{:?}", self.0);
         let mut min_options = 11;
         let mut min_ind = 0;
         for (i, cell) in self.0.iter().enumerate() {
             if let &Cell::Unknown(ref val) = cell {
+                debug!("Considering index {} which has {} options", i, val.possibles.len());
                 if val.possibles.len() < min_options {
                     min_options = val.possibles.len();
                     min_ind = i;
                 }
             }
         }
+        debug!("Just found most constrained cell at index {} with {} options", min_ind, min_options);
         (min_ind, &mut self.0[min_ind])
     }
 
@@ -88,6 +95,64 @@ impl Puzzle {
         let mut new_puzzle = self.clone();
         new_puzzle.0[pivot_cell_index] = Cell::Known(val);
         new_puzzle
+    }
+
+    fn is_valid(&self) -> bool {
+        let mut myself = self.clone();
+        if !self.is_done() {
+            debug!("Not done, so not valid");
+            return false;
+        }
+        let mut set = Vec::with_capacity(10);
+        for row in 0..9 {
+            for elem in 0..9 {
+                if let Cell::Known(val) = *myself.row(row, elem) {
+                    set.push(val);
+                }
+            }
+            set.sort();
+            for elem in 0..9 {
+                if set[elem] != (elem + 1) as u8 {
+                    debug!("Row {} invalid for {}", row, elem);
+                    return false;
+                }
+            }
+            set.clear();
+        }
+        for col in 0..9 {
+            // collect known values in this col
+            for elem in 0..9 {
+                if let Cell::Known(val) = *myself.col(col, elem) {
+                    set.push(val);
+                }
+            }
+            set.sort();
+            for elem in 0..9 {
+                if set[elem] != (elem + 1) as u8 {
+                    debug!("Col {} invalid for {}", col, elem);
+                    return false;
+                }
+            }
+            set.clear();
+        }
+        for block in 0..9 {
+            // collect known values in this block
+            for elem in 0..9 {
+                if let Cell::Known(val) = *myself.subcell(block, elem) {
+                    set.push(val);
+                }
+            }
+            set.sort();
+            for elem in 0..9 {
+                if set[elem] != (elem + 1) as u8 {
+                    debug!("Block {} invalid for {}", block, elem);
+                    debug!("set: {:?}", set);
+                    return false;
+                }
+            }
+            set.clear();
+        }
+        true
     }
 }
 
@@ -102,9 +167,25 @@ fn parse_puzzle(flat: &str) -> Puzzle {
     Puzzle(cells)
 }
 
+impl std::fmt::Display for Puzzle {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let mut myself = self.clone();
+        for row in 0..9 {
+            for col in 0..9 {
+                write!(f, "{} ", match myself.row(row, col) {
+                    &mut Cell::Known(val) => format!("{}", val),
+                    &mut Cell::Unknown(_) => ".".into(),
+                })?
+            }
+            write!(f, "\n")?
+        }
+        Ok(())
+    }
+}
+
+
 
 fn update_constraints(puzzle: &mut Puzzle) {
-    // puzzle.0[1] = Cell::Known(3);
     let mut set = Vec::with_capacity(10);
     for row in 0..9 {
         // collect known values in this row
@@ -153,7 +234,7 @@ fn update_constraints(puzzle: &mut Puzzle) {
                 for item in set.iter() {
                     val.possibles.remove_item(&item);
                 }
-                println!("{:?}", val.possibles);
+                debug!("{:?}", val.possibles);
             }
         }
         set.clear();
@@ -167,11 +248,13 @@ fn make_choice(puzzle: &mut Puzzle, choice: (usize, u8)) {
 fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
     let mut result = puzzle.clone();
     update_constraints(&mut result);
+    debug!("{}", result);
     fn inner_solve(mut puzzle: Puzzle) -> Option<Puzzle> {
         // Solve this puzzle as much as possible
         while let Some(choice) = puzzle.get_forced_choice() {
             make_choice(&mut puzzle, choice);
             update_constraints(&mut puzzle);
+            debug!("{}", puzzle);
         }
         // Now either pop back up the stack, or randomly guess all
         // possible choices of the most constrained single cell
@@ -187,7 +270,10 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
             }
         };
         for val in opts.iter() {
-            let new_puzzle = puzzle.with_cell_choice(pivot_cell_index, *val);
+            let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, *val);
+            debug!("Trying pivot cell {} with val {}:", pivot_cell_index, *val);
+            debug!("{}", new_puzzle);
+            update_constraints(&mut new_puzzle);
             if let Some(soln) = inner_solve(new_puzzle) {
                 return Some(soln);
             }
@@ -208,8 +294,9 @@ fn main() {
     for line in BufReader::new(fid).lines() {
         let puzzle = parse_puzzle(&line.unwrap());
         let soln = solve_puzzle(puzzle.clone());
-        println!("{:?}\n{:?}", puzzle, soln);
-        break;
+        assert!(soln.is_valid());
+        println!("{}\n{}", puzzle, soln);
+        println!("-------------------");
     }
 }
 
@@ -230,7 +317,9 @@ mod tests {
     fn solving() {
         let p = get_puzzle();
         let s = solve_puzzle(p);
-        println!("{:?}", s);
+        debug!("{}", s);
+        assert!(s.is_done()); 
+        assert!(s.is_valid()); 
     }
 
     #[test]
@@ -251,6 +340,8 @@ mod tests {
     #[test]
     fn indexing() {
         let mut p = get_puzzle();
+        debug!("{}", p);
+        assert_eq!(*p.row(0, 0), Cell::Known(9));
         assert_eq!(*p.row(0, 2), Cell::Known(4));
         assert_eq!(*p.row(1, 1), Cell::Known(5));
 
@@ -260,4 +351,3 @@ mod tests {
         assert_eq!(*p.subcell(2, 3), Cell::Known(1));
     }
 }
-
