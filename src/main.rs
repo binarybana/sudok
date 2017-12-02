@@ -183,6 +183,23 @@ impl std::fmt::Display for Puzzle {
     }
 }
 
+fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8) {
+    let row: u8 = index as u8 / 9;
+    let col: u8 = index as u8 % 9;
+    let block = (row/3)*3 + (col/3);
+
+    for elem in 0..9 {
+        if let &mut Cell::Unknown(ref mut val) = puzzle.row(row, elem) {
+            val.possibles.remove_item(&fill_val);
+        }
+        if let &mut Cell::Unknown(ref mut val) = puzzle.col(col, elem) {
+            val.possibles.remove_item(&fill_val);
+        }
+        if let &mut Cell::Unknown(ref mut val) = puzzle.subcell(block, elem) {
+            val.possibles.remove_item(&fill_val);
+        }
+    }
+}
 
 
 fn update_constraints(puzzle: &mut Puzzle) {
@@ -253,7 +270,7 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
         // Solve this puzzle as much as possible
         while let Some(choice) = puzzle.get_forced_choice() {
             make_choice(&mut puzzle, choice);
-            update_constraints(&mut puzzle);
+            update_constraints_pointwise(&mut puzzle, choice.0, choice.1);
             debug!("{}", puzzle);
         }
         // Now either pop back up the stack, or randomly guess all
@@ -273,7 +290,8 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
             let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, *val);
             debug!("Trying pivot cell {} with val {}:", pivot_cell_index, *val);
             debug!("{}", new_puzzle);
-            update_constraints(&mut new_puzzle);
+            // update_constraints(&mut new_puzzle);
+            update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, *val);
             if let Some(soln) = inner_solve(new_puzzle) {
                 return Some(soln);
             }
