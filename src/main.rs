@@ -285,19 +285,28 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
 }
 
 fn main() {
+    use std::time::{Duration, Instant};
 
     let fname = match std::env::args().skip(1).next() {
         Some(file) => file,
         None => panic!("Need a file as argument"),
     };
     let fid = std::fs::File::open(fname).expect("Not a valid filename");
+    let now = Instant::now();
+
+    let mut num_puzzles = 0;
     for line in BufReader::new(fid).lines() {
+        num_puzzles += 1;
         let puzzle = parse_puzzle(&line.unwrap());
         let soln = solve_puzzle(puzzle.clone());
         assert!(soln.is_valid());
         println!("{}\n{}", puzzle, soln);
         println!("-------------------");
     }
+    let new_now = Instant::now();
+    let duration = new_now.duration_since(now);
+    println!("Time for {} puzzles: {:?}, time per puzzle: {:?}",
+             num_puzzles, duration, duration/num_puzzles);
 }
 
 #[cfg(test)]
