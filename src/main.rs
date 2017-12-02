@@ -5,18 +5,19 @@ extern crate env_logger;
 
 use std::io::{BufRead, BufReader};
 
+extern crate fixedbitset;
+use fixedbitset::FixedBitSet;
 
 #[derive(Debug,Clone,PartialEq)]
 struct GuessCell {
-    possibles: Vec<u8>,
+    possibles: FixedBitSet,
 }
 
 impl GuessCell {
     fn new() -> GuessCell {
-        let mut set = Vec::with_capacity(10);
-        for i in 1..10 {
-            set.push(i);
-        }
+        // We eat the 1 bit waste for simpler 0 to 1 based indexing in Sudoku
+        let mut set = FixedBitSet::with_capacity(10);
+        set.insert_range(1..10);
         GuessCell{possibles:set}
     }
 }
@@ -63,8 +64,8 @@ impl Puzzle {
     fn get_forced_choice(&mut self) -> Option<(usize, u8)> {
         for (i, cell) in self.0.iter().enumerate() {
             if let &Cell::Unknown(ref val) = cell {
-                if val.possibles.len() == 1 {
-                    return Some((i, val.possibles[0]));
+                if val.possibles.count_ones(..) == 1 {
+                    return Some((i, val.possibles.ones().next().unwrap() as u8));
                 }
             }
         }
@@ -80,9 +81,9 @@ impl Puzzle {
         let mut min_ind = 0;
         for (i, cell) in self.0.iter().enumerate() {
             if let &Cell::Unknown(ref val) = cell {
-                debug!("Considering index {} which has {} options", i, val.possibles.len());
-                if val.possibles.len() < min_options {
-                    min_options = val.possibles.len();
+                debug!("Considering index {} which has {} options", i, val.possibles.count_ones(..));
+                if val.possibles.count_ones(..) < min_options {
+                    min_options = val.possibles.count_ones(..);
                     min_ind = i;
                 }
             }
@@ -190,13 +191,13 @@ fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8)
 
     for elem in 0..9 {
         if let &mut Cell::Unknown(ref mut val) = puzzle.row(row, elem) {
-            val.possibles.remove_item(&fill_val);
+            val.possibles.set(fill_val as usize, false);
         }
         if let &mut Cell::Unknown(ref mut val) = puzzle.col(col, elem) {
-            val.possibles.remove_item(&fill_val);
+            val.possibles.set(fill_val as usize, false);
         }
         if let &mut Cell::Unknown(ref mut val) = puzzle.subcell(block, elem) {
-            val.possibles.remove_item(&fill_val);
+            val.possibles.set(fill_val as usize, false);
         }
     }
 }
@@ -215,7 +216,7 @@ fn update_constraints(puzzle: &mut Puzzle) {
         for elem in 0..9 {
             if let &mut Cell::Unknown(ref mut val) = puzzle.row(row, elem) {
                 for item in set.iter() {
-                    val.possibles.remove_item(&item);
+                    val.possibles.set(*item as usize, false);
                 }
             }
         }
@@ -232,7 +233,7 @@ fn update_constraints(puzzle: &mut Puzzle) {
         for elem in 0..9 {
             if let &mut Cell::Unknown(ref mut val) = puzzle.col(col, elem) {
                 for item in set.iter() {
-                    val.possibles.remove_item(&item);
+                    val.possibles.set(*item as usize, false);
                 }
             }
         }
@@ -249,7 +250,7 @@ fn update_constraints(puzzle: &mut Puzzle) {
         for elem in 0..9 {
             if let &mut Cell::Unknown(ref mut val) = puzzle.subcell(block, elem) {
                 for item in set.iter() {
-                    val.possibles.remove_item(&item);
+                    val.possibles.set(*item as usize, false);
                 }
                 debug!("{:?}", val.possibles);
             }
@@ -286,24 +287,24 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
                 _ => unreachable!(),
             }
         };
-        for val in opts.iter() {
-            let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, *val);
-            debug!("Trying pivot cell {} with val {}:", pivot_cell_index, *val);
+        for val in opts.ones() {
+            let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
+            debug!("Trying pivot cell {} with val {}:", pivot_cell_index, val);
             debug!("{}", new_puzzle);
             // update_constraints(&mut new_puzzle);
-            update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, *val);
+            update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8);
             if let Some(soln) = inner_solve(new_puzzle) {
                 return Some(soln);
             }
         }
         return None;
     }
-    // FIXME
     inner_solve(result).unwrap()
 }
 
 fn main() {
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
+    let _ = env_logger::init();
 
     let fname = match std::env::args().skip(1).next() {
         Some(file) => file,
@@ -342,6 +343,7 @@ mod tests {
 
     #[test]
     fn solving() {
+        let _ = env_logger::init();
         let p = get_puzzle();
         let s = solve_puzzle(p);
         debug!("{}", s);
