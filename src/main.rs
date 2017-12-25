@@ -1,5 +1,8 @@
 #![feature(vec_remove_item)]
 
+#[macro_use]
+extern crate lazy_static;
+
 #[macro_use] extern crate log;
 extern crate env_logger;
 
@@ -7,6 +10,43 @@ use std::io::{BufRead, BufReader};
 
 extern crate fixedbitset;
 use fixedbitset::FixedBitSet;
+
+lazy_static! {
+    static ref NEIGHBORS: Vec<Vec<usize>> = {
+        let mut v = Vec::with_capacity(81);
+        for i in 0..81 {
+            v.push(Vec::with_capacity(9+9+9-3-3));
+            let row = i/9;
+            let col = i%9;
+
+            //rows
+            ((row*9)..((row+1)*9)).for_each(|j| v[i].push(j));
+
+            // cols
+            for j in 0..9 {
+                let ind = j*9 + col;
+                if ind != i {
+                    v[i].push(ind);
+                }
+            }
+
+            // blocks
+            let block_row = (row/3)*3;
+            let block_col = (col/3)*3;
+            for bi in 0..3 {
+                if (block_row + bi) != row {
+                    for bj in 0..3 {
+                        if (block_col + bj) != col {
+                            v[i].push((block_row+bi)*9 + (block_col+bj));
+                        }
+                    }
+                }
+            }
+            assert_eq!(v[i].len(), 9+9+9-6);
+        }
+        v
+    };
+}
 
 #[derive(Debug,Clone,PartialEq)]
 struct GuessCell {
@@ -185,19 +225,11 @@ impl std::fmt::Display for Puzzle {
 }
 
 fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8) {
-    let row: u8 = index as u8 / 9;
-    let col: u8 = index as u8 % 9;
-    let block = (row/3)*3 + (col/3);
-
-    for elem in 0..9 {
-        if let &mut Cell::Unknown(ref mut val) = puzzle.row(row, elem) {
+    for elem in NEIGHBORS[index].iter() {
+        if let Some(&mut Cell::Unknown(ref mut val)) = puzzle.0.get_mut(*elem) {
             val.possibles.set(fill_val as usize, false);
-        }
-        if let &mut Cell::Unknown(ref mut val) = puzzle.col(col, elem) {
-            val.possibles.set(fill_val as usize, false);
-        }
-        if let &mut Cell::Unknown(ref mut val) = puzzle.subcell(block, elem) {
-            val.possibles.set(fill_val as usize, false);
+            //TODO: if this was the last one, then go ahead and recursively
+            //update_constraints_pointwise there too
         }
     }
 }
@@ -364,6 +396,11 @@ mod tests {
     fn constraint_update() {
         let mut p = get_puzzle();
         update_constraints(&mut p);
+    }
+
+    #[test]
+    fn neighbors() {
+        assert_eq!(NEIGHBORS[0], vec![0,1,2,3,4,5,6,7,8,9,18,27,36,45,54,63,72,10,11,19,20]);
     }
 
     #[test]

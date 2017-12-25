@@ -2,11 +2,12 @@
 authors = ["Jason Knight <Jason@JasonKnight.us>"]
 name = "sudok"
 version = "0.1.0"
-
 [dependencies]
 env_logger = "*"
-log = "*"
 fixedbitset = "0.1.8"
+lazy_static = "*"
+log = "*"
 
+[profile]
 [profile.release]
 debug = true
