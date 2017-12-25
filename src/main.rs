@@ -224,23 +224,30 @@ impl std::fmt::Display for Puzzle {
     }
 }
 
-fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8) {
+fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8) -> bool {
+    debug!("Updating pointwise index {} value {}", index, fill_val);
+    let mut update_further = Vec::new();
     for elem in NEIGHBORS[index].iter() {
-        let mut update_further = None;
         if let Some(&mut Cell::Unknown(ref mut val)) = puzzle.0.get_mut(*elem) {
             val.possibles.set(fill_val as usize, false);
+            let dof = val.possibles.count_ones(..);
             //If this was the last one, then go ahead and recursively
             //update_constraints_pointwise there too
-            if val.possibles.count_ones(..) == 1 {
-                update_further = Some(val.possibles.ones().next().unwrap() as u8);
+            if dof == 0 {
+                return false;
+            } else if dof == 1 {
+                update_further.push((*elem, val.possibles.ones().next().unwrap() as u8));
             }
         }
-        // split this out here to mutably borrow Puzzle again
-        if let Some(sub_fill) = update_further {
-            make_choice(puzzle, (*elem, sub_fill));
-            update_constraints_pointwise(puzzle, *elem, sub_fill);
+    }
+    for choice in update_further.iter() {
+        debug!("In pointwise-update, updating further index {} value {}", choice.0, choice.1);
+        make_choice(puzzle, *choice);
+        if !update_constraints_pointwise(puzzle, choice.0, choice.1) {
+            return false;
         }
     }
+    true // valid
 }
 
 
@@ -332,9 +339,10 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
             let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
             debug!("Trying pivot cell {} with val {}:", pivot_cell_index, val);
             debug!("{}", new_puzzle);
-            update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8);
-            if let Some(soln) = inner_solve(new_puzzle) {
-                return Some(soln);
+            if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
+                if let Some(soln) = inner_solve(new_puzzle) {
+                    return Some(soln);
+                }
             }
         }
         return None;
