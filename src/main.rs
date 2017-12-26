@@ -1,5 +1,8 @@
 #![feature(nll)]
 
+extern crate rayon;
+use rayon::prelude::*;
+
 #[macro_use]
 extern crate lazy_static;
 
@@ -254,7 +257,7 @@ fn make_choice(puzzle: &mut Puzzle, choice: (usize, u8)) {
     puzzle[choice.0].set_value(choice.1 as usize);
 }
 
-fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
+fn solve_puzzle(puzzle: &Puzzle) -> Puzzle {
     let mut result = puzzle.clone();
     update_constraints(&mut result);
     debug!("\n{}", result);
@@ -275,17 +278,23 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
             let (pivot_cell_index, opts) = puzzle.get_most_constrained();
             (pivot_cell_index, opts.clone())
         };
-        for val in 1..10 {
-            if opts.get(val) {
-                let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
-                if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
-                    if let Some(soln) = inner_solve(new_puzzle) {
-                        return Some(soln);
-                    }
+        // let test: i32 = (1 .. 100).into_par_iter().map(|x| x * x).sum();
+        // let evals: Vec<i32> = (0..10).into_par_iter().filter(|val| opts.get((*val) as usize)).map(|val| (val + 1) as i32).collect();
+        let evals: Vec<Option<Puzzle>> = (0..10).into_par_iter().filter(|val| opts.get((*val) as usize)).map(|val| {
+            let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
+            if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
+                if let Some(soln) = inner_solve(new_puzzle) {
+                    return Some(soln);
                 }
             }
+            return None;
+        }).filter(|v| v.is_some()).collect();
+        for x in &evals {
+            if x.is_some() {
+                println!("{}", x.clone().unwrap());
+            }
         }
-        return None;
+        (*evals.first().unwrap()).clone()
     }
     inner_solve(result).unwrap()
 }
@@ -305,10 +314,10 @@ fn main() {
     for line in BufReader::new(fid).lines() {
         num_puzzles += 1;
         let puzzle = parse_puzzle(&line.unwrap());
-        let soln = solve_puzzle(puzzle.clone());
+        let soln = solve_puzzle(&puzzle);
         assert!(soln.is_valid());
-        // println!("{}\n{}", puzzle, soln);
-        // println!("-------------------");
+        println!("{}\n{}", puzzle, soln);
+        println!("-------------------");
     }
     let new_now = Instant::now();
     let duration = new_now.duration_since(now);
@@ -329,7 +338,7 @@ mod tests {
     fn solving() {
         let _ = env_logger::init();
         let p = get_puzzle();
-        let s = solve_puzzle(p);
+        let s = solve_puzzle(&p);
         debug!("{}", s);
         assert!(s.is_done()); 
         assert!(s.is_valid()); 

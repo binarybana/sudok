@@ -6,6 +6,7 @@ version = "0.1.0"
 env_logger = "*"
 lazy_static = "*"
 log = "*"
+rayon = "*"
 
 [profile]
 [profile.release]
