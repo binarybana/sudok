@@ -1,4 +1,4 @@
-#![feature(vec_remove_item)]
+#![feature(nll)]
 
 #[macro_use]
 extern crate lazy_static;
@@ -8,8 +8,7 @@ extern crate env_logger;
 
 use std::io::{BufRead, BufReader};
 
-extern crate fixedbitset;
-use fixedbitset::FixedBitSet;
+mod bitcube;
 
 lazy_static! {
     static ref NEIGHBORS: Vec<Vec<usize>> = {
@@ -20,7 +19,7 @@ lazy_static! {
             let col = i%9;
 
             //rows
-            ((row*9)..((row+1)*9)).for_each(|j| v[i].push(j));
+            ((row*9)..((row+1)*9)).for_each(|j| if j != i {v[i].push(j)});
 
             // cols
             for j in 0..9 {
@@ -42,44 +41,19 @@ lazy_static! {
                     }
                 }
             }
-            assert_eq!(v[i].len(), 9+9+9-6);
+            assert_eq!(v[i].len(), 9+9-1+9-6);
         }
         v
     };
 }
 
-#[derive(Debug,Clone,PartialEq)]
-struct GuessCell {
-    possibles: FixedBitSet,
-}
-
-impl GuessCell {
-    fn new() -> GuessCell {
-        // We eat the 1 bit waste for simpler 0 to 1 based indexing in Sudoku
-        let mut set = FixedBitSet::with_capacity(10);
-        set.insert_range(1..10);
-        GuessCell{possibles:set}
-    }
-}
-
-#[derive(Debug,Clone,PartialEq)]
-enum Cell {
-    Unknown(GuessCell),
-    Known(u8),
-}
-
-#[derive(Debug,Clone)]
-struct Puzzle(Vec<Cell>);
+type Puzzle = bitcube::BitCube;
+use bitcube::Cell;
 
 impl Puzzle {
     fn row(&mut self, row: u8, i: u8) -> &mut Cell {
         assert!(row <9 && i <9);
-        &mut self.0[(row*9+i) as usize]
-    }
-
-    fn col(&mut self, col: u8, i: u8) -> &mut Cell {
-        assert!(col <9 && i <9);
-        &mut self.0[(i*9+col) as usize]
+        &mut self[(row*9+i) as usize]
     }
 
     fn subcell(&mut self, index: u8, subindex: u8) -> &mut Cell {
@@ -93,48 +67,37 @@ impl Puzzle {
     }
 
     fn is_done(&self) -> bool {
-        for cell in self.0.iter() {
-            if let &Cell::Unknown(_) = cell {
+        for i in 0..81 {
+            if self[i].num_choices() != 1 {
                 return false;
             }
         }
         true
     }
 
-    fn get_forced_choice(&mut self) -> Option<(usize, u8)> {
-        for (i, cell) in self.0.iter().enumerate() {
-            if let &Cell::Unknown(ref val) = cell {
-                if val.possibles.count_ones(..) == 1 {
-                    return Some((i, val.possibles.ones().next().unwrap() as u8));
-                }
-            }
-        }
-        None
-    }
-
     fn get_most_constrained(&mut self) -> (usize, &mut Cell) {
         assert!(!self.is_done());
         // TODO: rewrite using functional operators
         debug!("most constrained: \n{}", self);
-        debug!("{:?}", self.0);
         let mut min_options = 11;
         let mut min_ind = 0;
-        for (i, cell) in self.0.iter().enumerate() {
-            if let &Cell::Unknown(ref val) = cell {
-                debug!("Considering index {} which has {} options", i, val.possibles.count_ones(..));
-                if val.possibles.count_ones(..) < min_options {
-                    min_options = val.possibles.count_ones(..);
-                    min_ind = i;
+        for i in 0..81 {
+            let dof = self[i].num_choices();
+            if dof > 1 {
+                debug!("Considering index {} which has {} options", i, self[i].num_choices());
+                if dof < min_options {
+                        min_options = self[i].num_choices();
+                        min_ind = i;
                 }
             }
         }
         debug!("Just found most constrained cell at index {} with {} options", min_ind, min_options);
-        (min_ind, &mut self.0[min_ind])
+        (min_ind, &mut self[min_ind])
     }
 
     fn with_cell_choice(&self, pivot_cell_index: usize, val: u8) -> Puzzle {
         let mut new_puzzle = self.clone();
-        new_puzzle.0[pivot_cell_index] = Cell::Known(val);
+        new_puzzle[pivot_cell_index].set_value(val as usize);
         new_puzzle
     }
 
@@ -147,13 +110,12 @@ impl Puzzle {
         let mut set = Vec::with_capacity(10);
         for row in 0..9 {
             for elem in 0..9 {
-                if let Cell::Known(val) = *myself.row(row, elem) {
-                    set.push(val);
-                }
+                set.push(self[row*9 + elem].get_value());
             }
             set.sort();
             for elem in 0..9 {
-                if set[elem] != (elem + 1) as u8 {
+                // TODO Check this u8 for off-by-one
+                if set[elem] != (elem + 1) {
                     debug!("Row {} invalid for {}", row, elem);
                     return false;
                 }
@@ -163,13 +125,12 @@ impl Puzzle {
         for col in 0..9 {
             // collect known values in this col
             for elem in 0..9 {
-                if let Cell::Known(val) = *myself.col(col, elem) {
-                    set.push(val);
-                }
+                set.push(self[elem*9 + col].get_value());
             }
             set.sort();
             for elem in 0..9 {
-                if set[elem] != (elem + 1) as u8 {
+                // TODO Check this u8 for off-by-one
+                if set[elem] != (elem + 1) {
                     debug!("Col {} invalid for {}", col, elem);
                     return false;
                 }
@@ -179,13 +140,12 @@ impl Puzzle {
         for block in 0..9 {
             // collect known values in this block
             for elem in 0..9 {
-                if let Cell::Known(val) = *myself.subcell(block, elem) {
-                    set.push(val);
-                }
+                set.push(myself.subcell(block, elem).get_value());
             }
             set.sort();
             for elem in 0..9 {
-                if set[elem] != (elem + 1) as u8 {
+                // TODO Check this u8 for off-by-one
+                if set[elem] != (elem + 1) {
                     debug!("Block {} invalid for {}", block, elem);
                     debug!("set: {:?}", set);
                     return false;
@@ -198,55 +158,39 @@ impl Puzzle {
 }
 
 fn parse_puzzle(flat: &str) -> Puzzle {
-    let mut cells = Vec::new();
-    for c in flat.chars() {
-        cells.push(if c == '.' 
-                       {Cell::Unknown(GuessCell::new())}
-                   else
-                       {Cell::Known(c.to_digit(10).unwrap() as u8)})
-    }
-    Puzzle(cells)
-}
-
-impl std::fmt::Display for Puzzle {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        let mut myself = self.clone();
-        for row in 0..9 {
-            for col in 0..9 {
-                write!(f, "{} ", match myself.row(row, col) {
-                    &mut Cell::Known(val) => format!("{}", val),
-                    &mut Cell::Unknown(_) => ".".into(),
-                })?
-            }
-            write!(f, "\n")?
+    let mut p = Puzzle::new();
+    for (i, c) in flat.chars().enumerate() {
+        if c != '.' {
+            let val = c.to_digit(10).unwrap();
+            p[i].set_value(val as usize);
         }
-        Ok(())
     }
+    p
 }
 
 fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8) -> bool {
     debug!("Updating pointwise index {} value {}", index, fill_val);
-    let mut update_further = Vec::new();
+    // TODO: get rid of this allocation
     for elem in NEIGHBORS[index].iter() {
-        if let Some(&mut Cell::Unknown(ref mut val)) = puzzle.0.get_mut(*elem) {
-            val.possibles.set(fill_val as usize, false);
-            let dof = val.possibles.count_ones(..);
-            //If this was the last one, then go ahead and recursively
+        // let mut val = puzzle[*elem];
+        debug!("Propagating constraint to index {} value {:?} with fill_val {}", *elem, puzzle[*elem], fill_val);
+        let pre_dof = puzzle[*elem].num_choices();
+        puzzle[*elem].clear(fill_val as usize);
+        let dof = puzzle[*elem].num_choices();
+        if dof == 0 { // Conflict
+            debug!("Found conflict with index {} val {:?}, returning false", *elem, puzzle[*elem]);
+            return false;
+        } else if dof == 1 && pre_dof == 2 {
+            //Just clarified this choice, so go ahead and recursively
             //update_constraints_pointwise there too
-            if dof == 0 {
+            make_choice(puzzle, (*elem, puzzle[*elem].get_value() as u8));
+            if !update_constraints_pointwise(puzzle, *elem, puzzle[*elem].get_value() as u8) {
+                debug!("Found conflict in downstream propagation, returning false");
                 return false;
-            } else if dof == 1 {
-                update_further.push((*elem, val.possibles.ones().next().unwrap() as u8));
             }
         }
     }
-    for choice in update_further.iter() {
-        debug!("In pointwise-update, updating further index {} value {}", choice.0, choice.1);
-        make_choice(puzzle, *choice);
-        if !update_constraints_pointwise(puzzle, choice.0, choice.1) {
-            return false;
-        }
-    }
+    debug!("Pointwise assignment worked out, returning true");
     true // valid
 }
 
@@ -256,15 +200,16 @@ fn update_constraints(puzzle: &mut Puzzle) {
     for row in 0..9 {
         // collect known values in this row
         for elem in 0..9 {
-            if let Cell::Known(val) = *puzzle.row(row, elem) {
-                set.push(val);
+            let val = puzzle[row*9+elem];
+            if val.num_choices() == 1 {
+                set.push(val.get_value());
             }
         }
         // Now remove that from possible set list
         for elem in 0..9 {
-            if let &mut Cell::Unknown(ref mut val) = puzzle.row(row, elem) {
-                for item in set.iter() {
-                    val.possibles.set(*item as usize, false);
+            for item in set.iter() {
+                if puzzle[row*9+elem].num_choices() != 1 {
+                    puzzle[row*9+elem].clear(*item as usize);
                 }
             }
         }
@@ -273,15 +218,16 @@ fn update_constraints(puzzle: &mut Puzzle) {
     for col in 0..9 {
         // collect known values in this col
         for elem in 0..9 {
-            if let Cell::Known(val) = *puzzle.col(col, elem) {
-                set.push(val);
+            let val = puzzle[elem*9+col];
+            if val.num_choices() == 1 {
+                set.push(val.get_value());
             }
         }
         // Now remove that from possible set list
         for elem in 0..9 {
-            if let &mut Cell::Unknown(ref mut val) = puzzle.col(col, elem) {
-                for item in set.iter() {
-                    val.possibles.set(*item as usize, false);
+            for item in set.iter() {
+                if puzzle[elem*9+col].num_choices() != 1 {
+                    puzzle[elem*9+col].clear(*item as usize);
                 }
             }
         }
@@ -290,17 +236,17 @@ fn update_constraints(puzzle: &mut Puzzle) {
     for block in 0..9 {
         // collect known values in this block
         for elem in 0..9 {
-            if let Cell::Known(val) = *puzzle.subcell(block, elem) {
-                set.push(val);
+            let val = puzzle.subcell(block,elem);
+            if val.num_choices() == 1 {
+                set.push(val.get_value());
             }
         }
         // Now remove that from possible set list
         for elem in 0..9 {
-            if let &mut Cell::Unknown(ref mut val) = puzzle.subcell(block, elem) {
-                for item in set.iter() {
-                    val.possibles.set(*item as usize, false);
+            for item in set.iter() {
+                if puzzle.subcell(block, elem).num_choices() != 1 {
+                    puzzle.subcell(block, elem).clear(*item as usize);
                 }
-                debug!("{:?}", val.possibles);
             }
         }
         set.clear();
@@ -308,20 +254,20 @@ fn update_constraints(puzzle: &mut Puzzle) {
 }
 
 fn make_choice(puzzle: &mut Puzzle, choice: (usize, u8)) {
-    puzzle.0[choice.0] = Cell::Known(choice.1);
+    puzzle[choice.0].set_value(choice.1 as usize);
 }
 
 fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
     let mut result = puzzle.clone();
     update_constraints(&mut result);
-    debug!("{}", result);
+    debug!("\n{}", result);
     fn inner_solve(mut puzzle: Puzzle) -> Option<Puzzle> {
         // Solve this puzzle as much as possible
-        while let Some(choice) = puzzle.get_forced_choice() {
-            make_choice(&mut puzzle, choice);
-            update_constraints_pointwise(&mut puzzle, choice.0, choice.1);
-            debug!("{}", puzzle);
-        }
+        // while let Some(choice) = puzzle.get_forced_choice() {
+        //     make_choice(&mut puzzle, choice);
+        //     update_constraints_pointwise(&mut puzzle, choice.0, choice.1);
+        //     debug!("\n{}", puzzle);
+        // }
         // Now either pop back up the stack, or randomly guess all
         // possible choices of the most constrained single cell
         if puzzle.is_done() {
@@ -329,19 +275,19 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
         }
         // some borrowck shenanigans
         let (pivot_cell_index, opts) = {
-            let (pivot_cell_index, pivot_cell) = puzzle.get_most_constrained();
-            match pivot_cell {
-                &mut Cell::Unknown(ref opts) => (pivot_cell_index, opts.possibles.clone()),
-                _ => unreachable!(),
-            }
+            let (pivot_cell_index, opts) = puzzle.get_most_constrained();
+            (pivot_cell_index, opts.clone())
         };
-        for val in opts.ones() {
-            let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
-            debug!("Trying pivot cell {} with val {}:", pivot_cell_index, val);
-            debug!("{}", new_puzzle);
-            if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
-                if let Some(soln) = inner_solve(new_puzzle) {
-                    return Some(soln);
+        for val in 1..10 {
+            if opts.get(val) {
+                let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
+                debug!("Trying pivot cell {} with val {}:", pivot_cell_index, val);
+                debug!("\n{}", new_puzzle);
+                if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
+                    debug!("Success in filling index {} with val {}", pivot_cell_index, val);
+                    if let Some(soln) = inner_solve(new_puzzle) {
+                        return Some(soln);
+                    }
                 }
             }
         }
@@ -381,10 +327,6 @@ mod tests {
     use super::*;
 
     fn get_puzzle() -> Puzzle {
-        // let c = "123456789123456789123456789123456789123456789123456789123456789123456789123456789
-        // let r = "111111111222222222333333333444444444555555555666666666777777777888888888999999999
-        // let s = "111222333111222333111222333444555666444555666444555666777888999777888999777888999
-        // let s = "9.4..5...25.6..1..31......8.7...9...4..26......147....7.......2...3..8.6.4.....9.";
         let s = "9.4..5...25.6..1..31......8.7...9...4..26......147....7.......2...3..8.6.4.....9.";
         parse_puzzle(s)
     }
@@ -402,10 +344,8 @@ mod tests {
     #[test]
     fn parsing() {
         let p = get_puzzle();
-        assert_eq!(p.0[0], Cell::Known(9));
-        use std::mem;
-        assert_eq!(mem::discriminant(&p.0[1]), mem::discriminant(&Cell::Unknown(GuessCell::new())));
-        assert_eq!(p.0[2], Cell::Known(4));
+        let c = Cell::singleton(9);
+        assert_eq!(p[0], c);
     }
 
     #[test]
@@ -416,20 +356,6 @@ mod tests {
 
     #[test]
     fn neighbors() {
-        assert_eq!(NEIGHBORS[0], vec![0,1,2,3,4,5,6,7,8,9,18,27,36,45,54,63,72,10,11,19,20]);
-    }
-
-    #[test]
-    fn indexing() {
-        let mut p = get_puzzle();
-        debug!("{}", p);
-        assert_eq!(*p.row(0, 0), Cell::Known(9));
-        assert_eq!(*p.row(0, 2), Cell::Known(4));
-        assert_eq!(*p.row(1, 1), Cell::Known(5));
-
-        assert_eq!(*p.col(0, 1), Cell::Known(2));
-        assert_eq!(*p.col(2, 5), Cell::Known(1));
-
-        assert_eq!(*p.subcell(2, 3), Cell::Known(1));
+        assert_eq!(NEIGHBORS[0], vec![1,2,3,4,5,6,7,8,9,18,27,36,45,54,63,72,10,11,19,20]);
     }
 }
