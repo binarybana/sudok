@@ -173,19 +173,16 @@ fn update_constraints_pointwise(puzzle: &mut Puzzle, index: usize, fill_val: u8)
     // TODO: get rid of this allocation
     for elem in NEIGHBORS[index].iter() {
         // let mut val = puzzle[*elem];
-        debug!("Propagating constraint to index {} value {:?} with fill_val {}", *elem, puzzle[*elem], fill_val);
         let pre_dof = puzzle[*elem].num_choices();
         puzzle[*elem].clear(fill_val as usize);
         let dof = puzzle[*elem].num_choices();
         if dof == 0 { // Conflict
-            debug!("Found conflict with index {} val {:?}, returning false", *elem, puzzle[*elem]);
             return false;
         } else if dof == 1 && pre_dof == 2 {
             //Just clarified this choice, so go ahead and recursively
             //update_constraints_pointwise there too
             make_choice(puzzle, (*elem, puzzle[*elem].get_value() as u8));
             if !update_constraints_pointwise(puzzle, *elem, puzzle[*elem].get_value() as u8) {
-                debug!("Found conflict in downstream propagation, returning false");
                 return false;
             }
         }
@@ -281,10 +278,7 @@ fn solve_puzzle(puzzle: Puzzle) -> Puzzle {
         for val in 1..10 {
             if opts.get(val) {
                 let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
-                debug!("Trying pivot cell {} with val {}:", pivot_cell_index, val);
-                debug!("\n{}", new_puzzle);
                 if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
-                    debug!("Success in filling index {} with val {}", pivot_cell_index, val);
                     if let Some(soln) = inner_solve(new_puzzle) {
                         return Some(soln);
                     }
