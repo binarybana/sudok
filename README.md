@@ -30,3 +30,5 @@ Optimizations made so far:
 Optimization ideas I still have:
 - Possibly use 3D bit cube to represent board (with third dimension being the digits), plus augmented bit matrix for solved or not etc.
 - Cache set of peers instead of calculating row-wise, col-wise, and block-wise peers (with overlaps) everytime. (Norvig does this already)
+
+After doing both of the above ideas (3d bitcube and caching peers), on a slower laptop (which was getting more like 20ms for the above instead of 16), I'm now getting avg puzzle solutions of ~3ms.
