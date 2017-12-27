@@ -1,7 +1,7 @@
 #![feature(nll)]
 
-extern crate rayon;
-use rayon::prelude::*;
+// extern crate rayon;
+// use rayon::prelude::*;
 
 #[macro_use]
 extern crate lazy_static;
@@ -278,9 +278,7 @@ fn solve_puzzle(puzzle: &Puzzle) -> Puzzle {
             let (pivot_cell_index, opts) = puzzle.get_most_constrained();
             (pivot_cell_index, opts.clone())
         };
-        // let test: i32 = (1 .. 100).into_par_iter().map(|x| x * x).sum();
-        // let evals: Vec<i32> = (0..10).into_par_iter().filter(|val| opts.get((*val) as usize)).map(|val| (val + 1) as i32).collect();
-        let evals: Vec<Option<Puzzle>> = (0..10).into_par_iter().filter(|val| opts.get((*val) as usize)).map(|val| {
+        let evals: Option<Option<Puzzle>> = (0..10).filter(|val| opts.get((*val) as usize)).map(|val| {
             let mut new_puzzle = puzzle.with_cell_choice(pivot_cell_index, val as u8);
             if update_constraints_pointwise(&mut new_puzzle, pivot_cell_index, val as u8) {
                 if let Some(soln) = inner_solve(new_puzzle) {
@@ -288,13 +286,13 @@ fn solve_puzzle(puzzle: &Puzzle) -> Puzzle {
                 }
             }
             return None;
-        }).filter(|v| v.is_some()).collect();
-        for x in &evals {
-            if x.is_some() {
-                println!("{}", x.clone().unwrap());
-            }
+        }).filter(|v| v.is_some()).next();
+        // }).find_any(|v| v.is_some()); // rayon
+        if evals.is_some() {
+            evals.unwrap()
+        } else {
+            None
         }
-        (*evals.first().unwrap()).clone()
     }
     inner_solve(result).unwrap()
 }
@@ -316,8 +314,8 @@ fn main() {
         let puzzle = parse_puzzle(&line.unwrap());
         let soln = solve_puzzle(&puzzle);
         assert!(soln.is_valid());
-        println!("{}\n{}", puzzle, soln);
-        println!("-------------------");
+        // println!("{}\n{}", puzzle, soln);
+        // println!("-------------------");
     }
     let new_now = Instant::now();
     let duration = new_now.duration_since(now);
